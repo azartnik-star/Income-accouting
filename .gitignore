@@ -1,0 +1,7 @@
+# Локальные кэши и данные
+.cache/
+.gocache/
+data/
+# IDE/OS
+.DS_Store
+.vscode/
