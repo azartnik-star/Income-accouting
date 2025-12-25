@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Финансы — категории, операции, бюджеты</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header>
+    <h1>Учёт расходов и доходов</h1>
+    <p>Категории, операции, бюджеты и предупреждения</p>
+  </header>
+
+  <main>
+    <section class="card">
+      <h2>Категории</h2>
+      <form id="category-form">
+        <input type="text" id="category-name" placeholder="Название категории" required>
+        <button type="submit">Добавить</button>
+      </form>
+      <ul id="category-list" class="pill-list"></ul>
+    </section>
+
+    <section class="card">
+      <h2>Операции</h2>
+      <form id="tx-form">
+        <div class="grid">
+          <div class="kind-switch">
+            <label><input type="radio" name="tx-kind" value="expense" checked> Расход</label>
+            <label><input type="radio" name="tx-kind" value="income"> Доход</label>
+          </div>
+          <select id="tx-category" required></select>
+          <input type="text" id="tx-amount" placeholder="Сумма в рублях" required>
+          <input type="date" id="tx-date" required>
+          <input type="text" id="tx-note" placeholder="Комментарий">
+        </div>
+        <button type="submit">Записать</button>
+      </form>
+      <div class="filters">
+        <label>c <input type="date" id="filter-from"></label>
+        <label>по <input type="date" id="filter-to"></label>
+        <button id="filter-apply">Обновить</button>
+      </div>
+      <table id="tx-table">
+        <thead>
+          <tr><th>Дата</th><th>Категория</th><th>Сумма</th><th>Комментарий</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <section class="card" id="summary-card">
+      <h2>Сводка по категориям</h2>
+      <div id="summary-list" class="summary-grid"></div>
+    </section>
+
+    <section class="card" id="alerts-card">
+      <h2>Превышения бюджетов</h2>
+      <div id="alerts-list" class="alert-list"></div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast hidden"></div>
+  <script src="app.js"></script>
+</body>
+</html>

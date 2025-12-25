@@ -12,6 +12,8 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+var errNotFound = errors.New("not found")
+
 // Category описывает пользовательскую категорию расходов/доходов.
 type Category struct {
 	ID   int64
@@ -135,6 +137,21 @@ func (l *Ledger) ListCategories() ([]Category, error) {
 	return out, rows.Err()
 }
 
+func (l *Ledger) DeleteCategory(id int64) error {
+	if id == 0 {
+		return errors.New("id категории не указан")
+	}
+	res, err := l.db.Exec("DELETE FROM categories WHERE id = ?", id)
+	if err != nil {
+		return fmt.Errorf("удаление категории: %w", err)
+	}
+	affected, _ := res.RowsAffected()
+	if affected == 0 {
+		return fmt.Errorf("%w: категория %d", errNotFound, id)
+	}
+	return nil
+}
+
 func (l *Ledger) AddTransaction(categoryID int64, amountKopeks int64, occurredAt time.Time, note string) (Transaction, error) {
 	if categoryID == 0 {
 		return Transaction{}, errors.New("categoryID не указан")
@@ -154,7 +171,7 @@ func (l *Ledger) AddTransaction(categoryID int64, amountKopeks int64, occurredAt
 	if err := txObj.QueryRow("SELECT 1 FROM categories WHERE id = ?", categoryID).Scan(&exists); err != nil {
 		txObj.Rollback()
 		if errors.Is(err, sql.ErrNoRows) {
-			return Transaction{}, fmt.Errorf("категория %d не найдена", categoryID)
+			return Transaction{}, fmt.Errorf("%w: категория %d", errNotFound, categoryID)
 		}
 		return Transaction{}, fmt.Errorf("проверка категории: %w", err)
 	}
@@ -181,6 +198,55 @@ func (l *Ledger) AddTransaction(categoryID int64, amountKopeks int64, occurredAt
 		CategoryID:   categoryID,
 		AmountKopeks: amountKopeks,
 		OccurredAt:   occurredAt,
+		Note:         note,
+	}, nil
+}
+
+func (l *Ledger) UpdateTransaction(id int64, categoryID int64, amountKopeks int64, occurredAt time.Time, note string) (Transaction, error) {
+	if id == 0 {
+		return Transaction{}, errors.New("id операции не указан")
+	}
+	if categoryID == 0 {
+		return Transaction{}, errors.New("categoryID не указан")
+	}
+	if occurredAt.IsZero() {
+		return Transaction{}, errors.New("дата операции не указана")
+	}
+
+	txObj, err := l.db.Begin()
+	if err != nil {
+		return Transaction{}, fmt.Errorf("begin tx: %w", err)
+	}
+	var exists int
+	if err := txObj.QueryRow("SELECT 1 FROM categories WHERE id = ?", categoryID).Scan(&exists); err != nil {
+		txObj.Rollback()
+		if errors.Is(err, sql.ErrNoRows) {
+			return Transaction{}, fmt.Errorf("%w: категория %d", errNotFound, categoryID)
+		}
+		return Transaction{}, fmt.Errorf("проверка категории: %w", err)
+	}
+
+	res, err := txObj.Exec(`
+UPDATE transactions
+SET category_id = ?, amount_kopeks = ?, occurred_at = ?, note = ?
+WHERE id = ?`, categoryID, amountKopeks, occurredAt.UTC().Format(time.RFC3339), note, id)
+	if err != nil {
+		txObj.Rollback()
+		return Transaction{}, fmt.Errorf("обновление транзакции: %w", err)
+	}
+	affected, _ := res.RowsAffected()
+	if affected == 0 {
+		txObj.Rollback()
+		return Transaction{}, fmt.Errorf("%w: транзакция %d", errNotFound, id)
+	}
+	if err := txObj.Commit(); err != nil {
+		return Transaction{}, fmt.Errorf("commit: %w", err)
+	}
+	return Transaction{
+		ID:           id,
+		CategoryID:   categoryID,
+		AmountKopeks: amountKopeks,
+		OccurredAt:   occurredAt.UTC(),
 		Note:         note,
 	}, nil
 }
@@ -247,6 +313,9 @@ FROM budgets b
 JOIN categories c ON c.id = b.category_id
 WHERE b.category_id = ?
 `, categoryID).Scan(&b.CategoryID, &b.LimitKopeks, &b.CategoryName); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return Budget{}, fmt.Errorf("%w: категория %d", errNotFound, categoryID)
+		}
 		return Budget{}, fmt.Errorf("чтение бюджета: %w", err)
 	}
 
