@@ -4,6 +4,11 @@ const api = {
     if (!res.ok) throw new Error("Не удалось получить категории");
     return res.json();
   },
+  async getBudgets() {
+    const res = await fetch("/budgets");
+    if (!res.ok) throw new Error("Не удалось получить бюджеты");
+    return res.json();
+  },
   async createCategory(name) {
     const res = await fetch("/categories", {
       method: "POST",
@@ -16,6 +21,15 @@ const api = {
   async deleteCategory(id) {
     const res = await fetch(`/categories/${id}`, { method: "DELETE" });
     if (!res.ok) throw new Error((await res.json()).error || "Ошибка удаления категории");
+  },
+  async upsertBudget(data) {
+    const res = await fetch("/budgets", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) throw new Error((await res.json()).error || "Ошибка сохранения бюджета");
+    return res.json();
   },
   async createTransaction(data) {
     const res = await fetch("/transactions", {
@@ -60,13 +74,20 @@ const state = {
   transactions: [],
   summary: [],
   alerts: [],
+  budgets: [],
   editingTxId: null,
+  page: 0,
+  pageSize: 20,
 };
 
 const els = {
   categoryForm: document.getElementById("category-form"),
   categoryName: document.getElementById("category-name"),
   categoryList: document.getElementById("category-list"),
+  budgetForm: document.getElementById("budget-form"),
+  budgetCategory: document.getElementById("budget-category"),
+  budgetLimit: document.getElementById("budget-limit"),
+  budgetList: document.getElementById("budget-list"),
   txForm: document.getElementById("tx-form"),
   txCategory: document.getElementById("tx-category"),
   txAmount: document.getElementById("tx-amount"),
@@ -74,6 +95,7 @@ const els = {
   txNote: document.getElementById("tx-note"),
   filterFrom: document.getElementById("filter-from"),
   filterTo: document.getElementById("filter-to"),
+  filterCategory: document.getElementById("filter-category"),
   filterApply: document.getElementById("filter-apply"),
   txTableBody: document.querySelector("#tx-table tbody"),
   summaryList: document.getElementById("summary-list"),
@@ -95,9 +117,11 @@ function formatRub(kopeks) {
 function renderCategories() {
   els.categoryList.innerHTML = "";
   els.txCategory.innerHTML = "";
+  if (els.budgetCategory) els.budgetCategory.innerHTML = "";
+  if (els.filterCategory) els.filterCategory.innerHTML = `<option value="">Все</option>`;
   state.categories.forEach((c) => {
-    const id = c.id ?? c.ID;
-    const name = c.name ?? c.Name ?? id;
+    const id = c.ID ?? c.id;
+    const name = c.Name ?? c.name ?? id;
     const li = document.createElement("li");
     li.className = "category-item";
     li.innerHTML = `<span>${name}</span><button type="button" class="ghost" data-id="${id}">×</button>`;
@@ -107,6 +131,16 @@ function renderCategories() {
     opt.value = id;
     opt.textContent = name;
     els.txCategory.appendChild(opt);
+
+    if (els.budgetCategory) {
+      const opt2 = opt.cloneNode(true);
+      els.budgetCategory.appendChild(opt2);
+    }
+
+    if (els.filterCategory) {
+      const opt3 = opt.cloneNode(true);
+      els.filterCategory.appendChild(opt3);
+    }
   });
 }
 
@@ -173,19 +207,50 @@ function renderAlerts() {
   });
 }
 
+function renderBudgets() {
+  if (!els.budgetList) return;
+  els.budgetList.innerHTML = "";
+  if (!state.budgets.length) {
+    const div = document.createElement("div");
+    div.className = "muted";
+    div.textContent = "Лимиты не заданы";
+    els.budgetList.appendChild(div);
+    return;
+  }
+  state.budgets.forEach((b) => {
+    const div = document.createElement("div");
+    div.className = "budget-item";
+    const name = b.category_name ?? b.CategoryName ?? b.category_id;
+    const limit = b.limit_rub ?? (b.LimitKopeks ? b.LimitKopeks / 100 : 0);
+    div.innerHTML = `<div>${name}</div><div class="muted">Лимит: ${Number(limit).toFixed(2)} ₽</div>`;
+    els.budgetList.appendChild(div);
+  });
+}
+
 async function refreshAll() {
   try {
-    const [cats, txs, summary, alerts] = await Promise.all([
-      api.getCategories(),
-      api.getTransactions(buildFilters()),
-      api.getSummary(buildFilters()),
-      api.getAlerts(buildFilters()),
-    ]);
+    const cats = await api.getCategories();
     state.categories = cats;
+    renderCategories();
+
+    try {
+      state.budgets = await api.getBudgets();
+    } catch (e) {
+      state.budgets = [];
+      console.error("budgets load failed", e);
+      showToast("Не удалось загрузить бюджеты", true);
+    }
+
+    const filters = buildFilters();
+    const [txs, summary, alerts] = await Promise.all([
+      api.getTransactions(filters),
+      api.getSummary(filters),
+      api.getAlerts(filters),
+    ]);
     state.transactions = txs;
     state.summary = summary;
     state.alerts = alerts;
-    renderCategories();
+    renderBudgets();
     renderTransactions();
     renderSummary();
     renderAlerts();
@@ -199,6 +264,9 @@ function buildFilters() {
   const params = {};
   if (els.filterFrom.value) params.from = els.filterFrom.value;
   if (els.filterTo.value) params.to = els.filterTo.value;
+  if (els.filterCategory.value) params.category_id = els.filterCategory.value;
+  params.limit = state.pageSize;
+  params.offset = state.page * state.pageSize;
   // если даты не указаны, ставим from = 1970-01-01 для предсказуемости
   if (!params.from) params.from = "1970-01-01";
   if (!params.to) params.to = new Date().toISOString().slice(0, 10);
@@ -257,6 +325,7 @@ function wireEvents() {
 
   els.filterApply.addEventListener("click", (e) => {
     e.preventDefault();
+    state.page = 0;
     refreshAll();
   });
 
@@ -277,6 +346,31 @@ function wireEvents() {
     }
   });
 
+  if (els.budgetForm) {
+    els.budgetForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const limitRaw = els.budgetLimit.value.trim().replace(",", ".");
+      const limit = Number(limitRaw);
+      if (Number.isNaN(limit) || limit <= 0) {
+        showToast("Лимит должен быть положительным числом", true);
+        return;
+      }
+      const payload = {
+        category_id: Number(els.budgetCategory.value),
+        limit_rub: String(limit),
+      };
+      try {
+        await api.upsertBudget(payload);
+        showToast("Бюджет сохранён");
+        els.budgetForm.reset();
+        initDefaults();
+        await refreshAll();
+      } catch (err) {
+        showToast(err.message || "Не удалось сохранить бюджет", true);
+      }
+    });
+  }
+
   els.txTableBody.addEventListener("click", (e) => {
     const tr = e.target.closest("tr");
     if (!tr) return;
@@ -289,6 +383,17 @@ function wireEvents() {
     els.txDate.value = tr.dataset.date;
     els.txNote.value = tr.dataset.note;
     showToast("Режим редактирования: измените данные и нажмите Записать");
+  });
+
+  document.getElementById("page-prev").addEventListener("click", () => {
+    if (state.page > 0) {
+      state.page -= 1;
+      refreshAll();
+    }
+  });
+  document.getElementById("page-next").addEventListener("click", () => {
+    state.page += 1;
+    refreshAll();
   });
 }
 

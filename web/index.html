@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Финансы — категории, операции, бюджеты</title>
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=3">
 </head>
 <body>
   <header>
@@ -20,6 +20,18 @@
         <button type="submit">Добавить</button>
       </form>
       <ul id="category-list" class="pill-list"></ul>
+    </section>
+
+    <section class="card">
+      <h2>Бюджеты</h2>
+      <form id="budget-form" class="stack">
+        <div class="grid">
+          <select id="budget-category" required></select>
+          <input type="text" id="budget-limit" placeholder="Лимит в рублях" required>
+        </div>
+        <button type="submit">Сохранить лимит</button>
+      </form>
+      <div id="budget-list" class="budget-list"></div>
     </section>
 
     <section class="card">
@@ -40,7 +52,16 @@
       <div class="filters">
         <label>c <input type="date" id="filter-from"></label>
         <label>по <input type="date" id="filter-to"></label>
+        <label>Категория
+          <select id="filter-category">
+            <option value="">Все</option>
+          </select>
+        </label>
         <button id="filter-apply">Обновить</button>
+        <div class="pager">
+          <button type="button" id="page-prev">Назад</button>
+          <button type="button" id="page-next">Вперёд</button>
+        </div>
       </div>
       <table id="tx-table">
         <thead>
@@ -62,6 +83,6 @@
   </main>
 
   <div id="toast" class="toast hidden"></div>
-  <script src="app.js"></script>
+  <script src="app.js?v=3"></script>
 </body>
 </html>
